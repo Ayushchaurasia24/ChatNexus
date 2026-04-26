@@ -16,20 +16,34 @@ const ChatWindow = () => {
   }, [messages]);
 
   // Send message
-  const handleSend = () => {
+  const handleSend = async () => {
     if (input.trim() === "") return;
 
-    const newMessage = {
-      text: input,
-      time: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      sender: "me",
-    };
+    try {
+      const response = await fetch("http://localhost:5000/api/messages/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: input }),
+      });
 
-    setMessages([...messages, newMessage]);
-    setInput("");
+      const data = await response.json();
+
+      const newMessage = {
+        text: data.message,
+        time: new Date(data.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        sender: "me",
+      };
+
+      setMessages((prev) => [...prev, newMessage]);
+      setInput("");
+    } catch (error) {
+      console.log("Error sending message:", error);
+    }
   };
 
   return (
