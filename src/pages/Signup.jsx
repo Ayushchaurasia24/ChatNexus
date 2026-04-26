@@ -2,6 +2,7 @@ import { useState } from "react";
 import "../styles/signup.css";
 import Input from "../components/Input";
 import Button from "../components/Button";
+import { Link } from "react-router-dom";
 
 function Signup() {
   const [formData, setFormData] = useState({
@@ -55,6 +56,9 @@ function Signup() {
 
           <Button text="Sign Up" />
         </form>
+        <p style={{ textAlign: "center", marginTop: "10px" }}>
+            Already have an account? <Link to="/login">Login</Link>
+        </p>
       </div>
     </div>
   );
