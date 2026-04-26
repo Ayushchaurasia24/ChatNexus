@@ -1,15 +1,19 @@
 import { useState } from "react";
-import "../styles/signup.css"; // reuse same styling
+import "../styles/signup.css";
 import Input from "../components/Input";
 import Button from "../components/Button";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { loginUser } from "../services/authService";
 
 function Login() {
+  const navigate = useNavigate(); // ✅ added
+
   const [formData, setFormData] = useState({
     emailOrPhone: "",
     password: "",
   });
+
+  const [loading, setLoading] = useState(false); // ✅ added
 
   const handleChange = (e) => {
     setFormData({
@@ -28,18 +32,22 @@ function Login() {
       return;
     }
 
+    setLoading(true); // ✅ start loading
+
     try {
       const res = await loginUser(formData);
 
-      alert("Login successful");
-      console.log(res.data);
-
-      // Save token
       localStorage.setItem("token", res.data.token);
+
+      alert("Login successful");
+
+      navigate("/chat"); // ✅ REDIRECT ADDED
 
     } catch (error) {
       alert(error.response?.data?.message || "Login failed");
     }
+
+    setLoading(false); // ✅ stop loading
   };
 
   return (
@@ -63,10 +71,11 @@ function Login() {
             onChange={handleChange}
           />
 
-          <Button text="Login" />
+          <Button text={loading ? "Logging in..." : "Login"} /> {/* ✅ improved */}
         </form>
+
         <p style={{ textAlign: "center", marginTop: "10px" }}>
-            Don’t have an account? <Link to="/signup">Sign Up</Link>
+          Don’t have an account? <Link to="/signup">Sign Up</Link>
         </p>
       </div>
     </div>

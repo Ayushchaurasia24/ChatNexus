@@ -2,17 +2,20 @@ import { useState } from "react";
 import "../styles/signup.css";
 import Input from "../components/Input";
 import Button from "../components/Button";
-import { Link } from "react-router-dom";
-
+import { Link, useNavigate } from "react-router-dom";
 import { signupUser } from "../services/authService";
 
 function Signup() {
+  const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
     password: "",
   });
+
+  const [loading, setLoading] = useState(false); // ✅ added
 
   const handleChange = (e) => {
     setFormData({
@@ -31,14 +34,20 @@ function Signup() {
       return;
     }
 
+    setLoading(true); // ✅ start loading
+
     try {
       const res = await signupUser(formData);
+
       alert(res.data.message);
-      console.log(res.data);
+
+      navigate("/login"); // ✅ REDIRECT ADDED
 
     } catch (error) {
       alert(error.response?.data?.message || "Signup failed");
     }
+
+    setLoading(false); // ✅ stop loading
   };
 
   return (
@@ -53,10 +62,11 @@ function Signup() {
           <Input type="text" name="phone" placeholder="Phone Number" onChange={handleChange} />
           <Input type="password" name="password" placeholder="Password" onChange={handleChange} />
 
-          <Button text="Sign Up" />
+          <Button text={loading ? "Signing up..." : "Sign Up"} /> {/* ✅ improved UX */}
         </form>
+
         <p style={{ textAlign: "center", marginTop: "10px" }}>
-            Already have an account? <Link to="/login">Login</Link>
+          Already have an account? <Link to="/login">Login</Link>
         </p>
       </div>
     </div>
