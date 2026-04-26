@@ -2,20 +2,41 @@ import React, { useEffect, useRef, useState } from "react";
 import "./chat.css";
 
 const ChatWindow = () => {
-  const [messages, setMessages] = useState([
-    { text: "Hello 👋", time: "10:30 AM", sender: "other" },
-    { text: "Hi bro!", time: "10:31 AM", sender: "me" },
-  ]);
-
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
 
-  // Auto scroll
+  // ✅ Fetch messages from backend (Task 5)
+  useEffect(() => {
+    const fetchMessages = async () => {
+      try {
+        const response = await fetch("http://localhost:5000/api/messages");
+        const data = await response.json();
+
+        const formattedMessages = data.map((msg) => ({
+          text: msg.message,
+          time: new Date(msg.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          sender: msg.UserId === 1 ? "me" : "other", // temp logic
+        }));
+
+        setMessages(formattedMessages);
+      } catch (error) {
+        console.log("Error fetching messages:", error);
+      }
+    };
+
+    fetchMessages();
+  }, []);
+
+  // ✅ Auto scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Send message
+  // ✅ Send message
   const handleSend = async () => {
     if (input.trim() === "") return;
 
