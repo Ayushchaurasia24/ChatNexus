@@ -3,6 +3,7 @@ import "../styles/signup.css"; // reuse same styling
 import Input from "../components/Input";
 import Button from "../components/Button";
 import { Link } from "react-router-dom";
+import { loginUser } from "../services/authService";
 
 function Login() {
   const [formData, setFormData] = useState({
@@ -17,7 +18,7 @@ function Login() {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const { emailOrPhone, password } = formData;
@@ -27,12 +28,18 @@ function Login() {
       return;
     }
 
-    if (password.length < 6) {
-      alert("Password must be at least 6 characters");
-      return;
-    }
+    try {
+      const res = await loginUser(formData);
 
-    console.log("Login Data:", formData);
+      alert("Login successful");
+      console.log(res.data);
+
+      // Save token
+      localStorage.setItem("token", res.data.token);
+
+    } catch (error) {
+      alert(error.response?.data?.message || "Login failed");
+    }
   };
 
   return (

@@ -4,6 +4,8 @@ import Input from "../components/Input";
 import Button from "../components/Button";
 import { Link } from "react-router-dom";
 
+import { signupUser } from "../services/authService";
+
 function Signup() {
   const [formData, setFormData] = useState({
     name: "",
@@ -19,7 +21,7 @@ function Signup() {
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const { name, email, phone, password } = formData;
@@ -29,17 +31,14 @@ function Signup() {
       return;
     }
 
-    if (!email.includes("@")) {
-      alert("Invalid email");
-      return;
-    }
+    try {
+      const res = await signupUser(formData);
+      alert(res.data.message);
+      console.log(res.data);
 
-    if (password.length < 6) {
-      alert("Password must be at least 6 characters");
-      return;
+    } catch (error) {
+      alert(error.response?.data?.message || "Signup failed");
     }
-
-    console.log("Signup Data:", formData);
   };
 
   return (
