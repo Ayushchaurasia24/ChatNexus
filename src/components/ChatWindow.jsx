@@ -2,8 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import "./chat.css";
 import { io } from "socket.io-client";
 
-// ✅ Socket outside component (correct)
-const socket = io("http://localhost:5000");
+const socket = io("http://localhost:5000", {
+  auth: {
+    token: localStorage.getItem("token"),
+  },
+});
 
 const ChatWindow = () => {
   const [messages, setMessages] = useState([]);
