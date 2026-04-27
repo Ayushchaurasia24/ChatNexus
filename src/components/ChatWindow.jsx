@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import "./chat.css";
 import { io } from "socket.io-client";
+import { jwtDecode } from "jwt-decode";
 
+// ✅ Create socket ONCE (singleton)
 const socket = io("http://localhost:5000", {
   auth: {
     token: localStorage.getItem("token"),
@@ -13,8 +15,21 @@ const ChatWindow = () => {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
 
-  // ✅ Fetch messages (Task 5)
+  // ✅ Get current userId safely
+  const token = localStorage.getItem("token");
+  let currentUserId = null;
+
+  try {
+    const decoded = token ? jwtDecode(token) : null;
+    currentUserId = decoded?.id;
+  } catch (err) {
+    console.log("Invalid token");
+  }
+
+  // ✅ Fetch messages from backend
   useEffect(() => {
+    if (!currentUserId) return;
+
     const fetchMessages = async () => {
       try {
         const response = await fetch("http://localhost:5000/api/messages");
@@ -26,7 +41,7 @@ const ChatWindow = () => {
             hour: "2-digit",
             minute: "2-digit",
           }),
-          sender: msg.UserId === 1 ? "me" : "other",
+          sender: msg.UserId === currentUserId ? "me" : "other",
         }));
 
         setMessages(formattedMessages);
@@ -36,34 +51,38 @@ const ChatWindow = () => {
     };
 
     fetchMessages();
-  }, []);
+  }, [currentUserId]);
 
-  // ✅ 🔥 SOCKET LISTENER (THIS WAS MISSING)
+  // ✅ Socket listener (real-time messages)
   useEffect(() => {
-    socket.on("newMessage", (msg) => {
+    if (!currentUserId) return;
+
+    const handleNewMessage = (msg) => {
       const formattedMessage = {
         text: msg.message,
         time: new Date(msg.createdAt).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         }),
-        sender: msg.UserId === 1 ? "me" : "other",
+        sender: msg.UserId === currentUserId ? "me" : "other",
       };
 
       setMessages((prev) => [...prev, formattedMessage]);
-    });
+    };
+
+    socket.on("newMessage", handleNewMessage);
 
     return () => {
-      socket.off("newMessage");
+      socket.off("newMessage", handleNewMessage);
     };
-  }, []);
+  }, [currentUserId]);
 
   // ✅ Auto scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ❌ REMOVE duplicate add (important fix)
+  // ✅ Send message (API only, socket handles UI)
   const handleSend = async () => {
     if (input.trim() === "") return;
 
@@ -72,12 +91,10 @@ const ChatWindow = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: localStorage.getItem("token"),
         },
         body: JSON.stringify({ message: input }),
       });
-
-      // ❌ DON'T manually add message
-      // Socket will handle it
 
       setInput("");
     } catch (error) {
@@ -87,7 +104,6 @@ const ChatWindow = () => {
 
   return (
     <div className="chat-container">
-      
       {/* Header */}
       <div className="chat-header">
         <h2>Group Chat</h2>
@@ -120,7 +136,6 @@ const ChatWindow = () => {
         />
         <button onClick={handleSend}>Send</button>
       </div>
-
     </div>
   );
 };
