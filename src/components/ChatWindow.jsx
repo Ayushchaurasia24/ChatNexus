@@ -3,7 +3,7 @@ import "./chat.css";
 import { io } from "socket.io-client";
 import { jwtDecode } from "jwt-decode";
 
-// Create socket ONCE (singleton)
+// ✅ Create socket ONCE (singleton)
 const socket = io("http://localhost:5000", {
   auth: {
     token: localStorage.getItem("token"),
@@ -13,32 +13,44 @@ const socket = io("http://localhost:5000", {
 const ChatWindow = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+
+  // Personal chat
   const [targetEmail, setTargetEmail] = useState("");
+
+  // Room + mode
   const [roomId, setRoomId] = useState(null);
+  const [isGroup, setIsGroup] = useState(false);
+
+  // Group chat
+  const [groupName, setGroupName] = useState("");
+
   const messagesEndRef = useRef(null);
 
-  //helper to generate unique room
+  // ✅ Generate unique room ID (order-independent)
   const generateRoomId = (email1, email2) => {
     return [email1, email2].sort().join("_");
   };
 
-  //Get current userId safely
+  // ✅ Get current user
   const token = localStorage.getItem("token");
   let currentUserId = null;
+  let currentUserEmail = null;
 
   try {
     const decoded = token ? jwtDecode(token) : null;
     currentUserId = decoded?.id;
+    currentUserEmail = decoded?.email;
   } catch (err) {
     console.log("Invalid token", err);
   }
 
-  //JOIN ROOM USING EMAIL
+  // =========================
+  // 🔹 JOIN PERSONAL CHAT
+  // =========================
   const handleJoinRoom = async () => {
     if (!targetEmail.trim()) return;
 
     try {
-      // ✅ STEP 1: verify user exists
       const res = await fetch(
         `http://localhost:5000/api/auth/user?email=${targetEmail}`
       );
@@ -49,42 +61,59 @@ const ChatWindow = () => {
       }
 
       const user = await res.json();
-
-      // ✅ STEP 2: get both emails
-      const currentUserEmail = jwtDecode(
-        localStorage.getItem("token")
-      )?.email;
-
       const otherUserEmail = user.email;
+
+      // ❌ Prevent self-chat
       if (otherUserEmail === currentUserEmail) {
         console.log("Cannot chat with yourself");
         return;
       }
 
-      // ✅ STEP 3: generate consistent room
       const newRoomId = generateRoomId(
         currentUserEmail,
         otherUserEmail
       );
 
       setRoomId(newRoomId);
+      setIsGroup(false); // ✅ FIXED
+      setMessages([]);   // ✅ clear old chat
 
-      // ✅ STEP 4: join room
       socket.emit("join_room", newRoomId);
 
-      console.log("Joined room:", newRoomId);
+      console.log("Joined personal room:", newRoomId);
     } catch (err) {
       console.log("Error joining room:", err);
     }
   };
 
-  // fetch messages from backend
+  // =========================
+  // 🔹 JOIN GROUP CHAT
+  // =========================
+  const handleJoinGroup = () => {
+    if (!groupName.trim()) return;
+
+    const groupRoomId = `group_${groupName.trim().toLowerCase()}`;
+
+    setRoomId(groupRoomId);
+    setIsGroup(true);
+    setMessages([]); // ✅ FIXED
+
+    socket.emit("join_room", groupRoomId);
+
+    console.log("Joined group:", groupRoomId);
+  };
+
+  // =========================
+  // 🔹 FETCH MESSAGES (initial)
+  // =========================
   useEffect(() => {
     if (!currentUserId) return;
 
     const fetchMessages = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/messages");
+        const response = await fetch(
+          "http://localhost:5000/api/messages"
+        );
         const data = await response.json();
 
         const formattedMessages = data.map((msg) => ({
@@ -105,12 +134,14 @@ const ChatWindow = () => {
     fetchMessages();
   }, [currentUserId]);
 
-  // because now we use dynamic room ,receive message ONLY for active room
+  // =========================
+  // 🔹 SOCKET LISTENER
+  // =========================
   useEffect(() => {
     if (!currentUserId) return;
 
     const handleNewMessage = (msg) => {
-      //filter by room
+      // ✅ Only messages for current room
       if (msg.roomId !== roomId) return;
 
       const formattedMessage = {
@@ -130,9 +161,11 @@ const ChatWindow = () => {
     return () => {
       socket.off("receive_message", handleNewMessage);
     };
-  }, [currentUserId, roomId]); //added roomId dependency
+  }, [currentUserId, roomId]);
 
-  //leave previous room when room changes
+  // =========================
+  // 🔹 LEAVE ROOM CLEANUP
+  // =========================
   useEffect(() => {
     return () => {
       if (roomId) {
@@ -141,33 +174,40 @@ const ChatWindow = () => {
     };
   }, [roomId]);
 
-  // ✅ Auto scroll
+  // =========================
+  // 🔹 AUTO SCROLL
+  // =========================
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  //send message to ROOM (not self)
+  // =========================
+  // 🔹 SEND MESSAGE
+  // =========================
   const handleSend = async () => {
     if (input.trim() === "" || !roomId) return;
 
     try {
-      const res = await fetch("http://localhost:5000/api/messages/send", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: localStorage.getItem("token"),
-        },
-        body: JSON.stringify({ message: input }),
-      });
+      const res = await fetch(
+        "http://localhost:5000/api/messages/send",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: localStorage.getItem("token"),
+          },
+          body: JSON.stringify({ message: input }),
+        }
+      );
 
       const savedMessage = await res.json();
 
-      //send to selected room
       socket.emit("send_message", {
-        roomId: roomId,
+        roomId,
         message: savedMessage.message,
         createdAt: savedMessage.createdAt,
         UserId: currentUserId,
+        isGroup,
       });
 
       setInput("");
@@ -180,10 +220,21 @@ const ChatWindow = () => {
     <div className="chat-container">
       {/* Header */}
       <div className="chat-header">
-        <h2>Personal Chat</h2>
+        <h2>{isGroup ? "Group Chat" : "Personal Chat"}</h2>
+
+        {/* Group Chat */}
+        <div style={{ padding: "10px" }}>
+          <input
+            type="text"
+            placeholder="Enter group name..."
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+          />
+          <button onClick={handleJoinGroup}>Join Group</button>
+        </div>
       </div>
 
-      {/* 🟡 NEW: USER SEARCH UI */}
+      {/* Personal Chat */}
       <div style={{ padding: "10px" }}>
         <input
           type="email"
