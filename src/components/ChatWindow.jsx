@@ -3,7 +3,7 @@ import "./chat.css";
 import { io } from "socket.io-client";
 import { jwtDecode } from "jwt-decode";
 
-// ✅ Create socket ONCE (singleton)
+// Create socket ONCE (singleton)
 const socket = io("http://localhost:5000", {
   auth: {
     token: localStorage.getItem("token"),
@@ -13,9 +13,16 @@ const socket = io("http://localhost:5000", {
 const ChatWindow = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
+  const [targetEmail, setTargetEmail] = useState("");
+  const [roomId, setRoomId] = useState(null);
   const messagesEndRef = useRef(null);
 
-  // ✅ Get current userId safely
+  //helper to generate unique room
+  const generateRoomId = (user1, user2) => {
+    return [user1, user2].sort().join("_");
+  };
+
+  //Get current userId safely
   const token = localStorage.getItem("token");
   let currentUserId = null;
 
@@ -23,10 +30,36 @@ const ChatWindow = () => {
     const decoded = token ? jwtDecode(token) : null;
     currentUserId = decoded?.id;
   } catch (err) {
-    console.log("Invalid token");
+    console.log("Invalid token", err);
   }
 
-  // ✅ Fetch messages from backend
+  //JOIN ROOM USING EMAIL
+  const handleJoinRoom = async () => {
+    if (!targetEmail.trim()) return;
+
+    try {
+      const res = await fetch(
+        `http://localhost:5000/api/auth/user?email=${targetEmail}`
+      );
+      const user = await res.json();
+
+      const otherUserId = user.id;
+
+      // create unique room
+      const newRoomId = generateRoomId(currentUserId, otherUserId);
+
+      setRoomId(newRoomId);
+
+      // join room
+      socket.emit("join_room", newRoomId);
+
+      console.log("Joined room:", newRoomId);
+    } catch (err) {
+      console.log("User not found",err);
+    }
+  };
+
+  // fetch messages from backend
   useEffect(() => {
     if (!currentUserId) return;
 
@@ -53,19 +86,14 @@ const ChatWindow = () => {
     fetchMessages();
   }, [currentUserId]);
 
-  // ✅ Join personal room
-  useEffect(() => {
-    if (!currentUserId) return;
-
-    socket.emit("join_room", currentUserId);
-
-  }, [currentUserId]);
-
-  // ✅ Socket listener (real-time messages)
+  // because now we use dynamic room ,receive message ONLY for active room
   useEffect(() => {
     if (!currentUserId) return;
 
     const handleNewMessage = (msg) => {
+      //filter by room
+      if (msg.roomId !== roomId) return;
+
       const formattedMessage = {
         text: msg.message,
         time: new Date(msg.createdAt).toLocaleTimeString([], {
@@ -83,19 +111,27 @@ const ChatWindow = () => {
     return () => {
       socket.off("receive_message", handleNewMessage);
     };
-  }, [currentUserId]);
+  }, [currentUserId, roomId]); //added roomId dependency
+
+  //leave previous room when room changes
+  useEffect(() => {
+    return () => {
+      if (roomId) {
+        socket.emit("leave_room", roomId);
+      }
+    };
+  }, [roomId]);
 
   // ✅ Auto scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ✅ Send message (API only, socket handles UI)
+  //send message to ROOM (not self)
   const handleSend = async () => {
-    if (input.trim() === "") return;
+    if (input.trim() === "" || !roomId) return;
 
     try {
-      // ✅ Send via API (DB storage)
       const res = await fetch("http://localhost:5000/api/messages/send", {
         method: "POST",
         headers: {
@@ -107,9 +143,9 @@ const ChatWindow = () => {
 
       const savedMessage = await res.json();
 
-      // ✅ ALSO send via socket (real-time)
+      //send to selected room
       socket.emit("send_message", {
-        roomId: currentUserId,
+        roomId: roomId,
         message: savedMessage.message,
         createdAt: savedMessage.createdAt,
         UserId: currentUserId,
@@ -125,7 +161,18 @@ const ChatWindow = () => {
     <div className="chat-container">
       {/* Header */}
       <div className="chat-header">
-        <h2>Group Chat</h2>
+        <h2>Personal Chat</h2>
+      </div>
+
+      {/* 🟡 NEW: USER SEARCH UI */}
+      <div style={{ padding: "10px" }}>
+        <input
+          type="text"
+          placeholder="Enter user email..."
+          value={targetEmail}
+          onChange={(e) => setTargetEmail(e.target.value)}
+        />
+        <button onClick={handleJoinRoom}>Start Chat</button>
       </div>
 
       {/* Messages */}
