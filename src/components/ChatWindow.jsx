@@ -18,8 +18,8 @@ const ChatWindow = () => {
   const messagesEndRef = useRef(null);
 
   //helper to generate unique room
-  const generateRoomId = (user1, user2) => {
-    return [user1, user2].sort().join("_");
+  const generateRoomId = (email1, email2) => {
+    return [email1, email2].sort().join("_");
   };
 
   //Get current userId safely
@@ -38,24 +38,43 @@ const ChatWindow = () => {
     if (!targetEmail.trim()) return;
 
     try {
+      // ✅ STEP 1: verify user exists
       const res = await fetch(
         `http://localhost:5000/api/auth/user?email=${targetEmail}`
       );
+
+      if (!res.ok) {
+        console.log("User not found");
+        return;
+      }
+
       const user = await res.json();
 
-      const otherUserId = user.id;
+      // ✅ STEP 2: get both emails
+      const currentUserEmail = jwtDecode(
+        localStorage.getItem("token")
+      )?.email;
 
-      // create unique room
-      const newRoomId = generateRoomId(currentUserId, otherUserId);
+      const otherUserEmail = user.email;
+      if (otherUserEmail === currentUserEmail) {
+        console.log("Cannot chat with yourself");
+        return;
+      }
+
+      // ✅ STEP 3: generate consistent room
+      const newRoomId = generateRoomId(
+        currentUserEmail,
+        otherUserEmail
+      );
 
       setRoomId(newRoomId);
 
-      // join room
+      // ✅ STEP 4: join room
       socket.emit("join_room", newRoomId);
 
       console.log("Joined room:", newRoomId);
     } catch (err) {
-      console.log("User not found",err);
+      console.log("Error joining room:", err);
     }
   };
 
@@ -167,7 +186,7 @@ const ChatWindow = () => {
       {/* 🟡 NEW: USER SEARCH UI */}
       <div style={{ padding: "10px" }}>
         <input
-          type="text"
+          type="email"
           placeholder="Enter user email..."
           value={targetEmail}
           onChange={(e) => setTargetEmail(e.target.value)}
