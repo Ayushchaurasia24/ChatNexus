@@ -1,37 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import "./chat.css";
-import { io } from "socket.io-client";
 import { jwtDecode } from "jwt-decode";
-
-// ✅ Create socket ONCE (singleton)
-const socket = io("http://localhost:5000", {
-  auth: {
-    token: localStorage.getItem("token"),
-  },
-});
+import socket from "../socket";
 
 const ChatWindow = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-
-  // Personal chat
   const [targetEmail, setTargetEmail] = useState("");
-
-  // Room + mode
   const [roomId, setRoomId] = useState(null);
   const [isGroup, setIsGroup] = useState(false);
-
-  // Group chat
   const [groupName, setGroupName] = useState("");
 
   const messagesEndRef = useRef(null);
 
-  // ✅ Generate unique room ID (order-independent)
   const generateRoomId = (email1, email2) => {
     return [email1, email2].sort().join("_");
   };
 
-  // ✅ Get current user
   const token = localStorage.getItem("token");
   let currentUserId = null;
   let currentUserEmail = null;
@@ -44,9 +29,20 @@ const ChatWindow = () => {
     console.log("Invalid token", err);
   }
 
-  // =========================
-  // 🔹 JOIN PERSONAL CHAT
-  // =========================
+  // ✅ SINGLE SOCKET CONNECTION (FIXED)
+  useEffect(() => {
+    if (!socket.connected) {
+      socket.auth = {
+        token: localStorage.getItem("token"),
+      };
+      socket.connect();
+    }
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   const handleJoinRoom = async () => {
     if (!targetEmail.trim()) return;
 
@@ -55,40 +51,24 @@ const ChatWindow = () => {
         `http://localhost:5000/api/auth/user?email=${targetEmail}`
       );
 
-      if (!res.ok) {
-        console.log("User not found");
-        return;
-      }
+      if (!res.ok) return;
 
       const user = await res.json();
-      const otherUserEmail = user.email;
 
-      // ❌ Prevent self-chat
-      if (otherUserEmail === currentUserEmail) {
-        console.log("Cannot chat with yourself");
-        return;
-      }
+      if (user.email === currentUserEmail) return;
 
-      const newRoomId = generateRoomId(
-        currentUserEmail,
-        otherUserEmail
-      );
+      const newRoomId = generateRoomId(currentUserEmail, user.email);
 
       setRoomId(newRoomId);
-      setIsGroup(false); // ✅ FIXED
-      setMessages([]);   // ✅ clear old chat
+      setIsGroup(false);
+      setMessages([]);
 
       socket.emit("join_room", newRoomId);
-
-      console.log("Joined personal room:", newRoomId);
     } catch (err) {
-      console.log("Error joining room:", err);
+      console.log(err);
     }
   };
 
-  // =========================
-  // 🔹 JOIN GROUP CHAT
-  // =========================
   const handleJoinGroup = () => {
     if (!groupName.trim()) return;
 
@@ -96,23 +76,52 @@ const ChatWindow = () => {
 
     setRoomId(groupRoomId);
     setIsGroup(true);
-    setMessages([]); // ✅ FIXED
+    setMessages([]);
 
     socket.emit("join_room", groupRoomId);
-
-    console.log("Joined group:", groupRoomId);
   };
 
-  // =========================
-  // 🔹 FETCH MESSAGES (initial)
-  // =========================
+  const handleFileUpload = async (file) => {
+    if (!file || !roomId) return;
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("http://localhost:5000/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!data.fileUrl) return;
+
+      await fetch("http://localhost:5000/api/messages/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: localStorage.getItem("token"),
+        },
+        body: JSON.stringify({
+          message: data.fileUrl,
+          roomId,
+          type: "file",
+          isGroup,
+        }),
+      });
+    } catch (error) {
+      console.log("File upload error:", error);
+    }
+  };
+
   useEffect(() => {
-    if (!currentUserId) return;
+    if (!currentUserId || !roomId) return;
 
     const fetchMessages = async () => {
       try {
         const response = await fetch(
-          "http://localhost:5000/api/messages"
+          `http://localhost:5000/api/messages?roomId=${roomId}`
         );
         const data = await response.json();
 
@@ -123,37 +132,36 @@ const ChatWindow = () => {
             minute: "2-digit",
           }),
           sender: msg.UserId === currentUserId ? "me" : "other",
+          type: msg.type || "text",
         }));
 
         setMessages(formattedMessages);
       } catch (error) {
-        console.log("Error fetching messages:", error);
+        console.log(error);
       }
     };
 
     fetchMessages();
-  }, [currentUserId]);
+  }, [currentUserId, roomId]);
 
-  // =========================
-  // 🔹 SOCKET LISTENER
-  // =========================
   useEffect(() => {
     if (!currentUserId) return;
 
     const handleNewMessage = (msg) => {
-      // ✅ Only messages for current room
       if (msg.roomId !== roomId) return;
 
-      const formattedMessage = {
-        text: msg.message,
-        time: new Date(msg.createdAt).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        sender: msg.UserId === currentUserId ? "me" : "other",
-      };
-
-      setMessages((prev) => [...prev, formattedMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          text: msg.message,
+          time: new Date(msg.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          sender: msg.UserId === currentUserId ? "me" : "other",
+          type: msg.type || "text",
+        },
+      ]);
     };
 
     socket.on("receive_message", handleNewMessage);
@@ -163,9 +171,6 @@ const ChatWindow = () => {
     };
   }, [currentUserId, roomId]);
 
-  // =========================
-  // 🔹 LEAVE ROOM CLEANUP
-  // =========================
   useEffect(() => {
     return () => {
       if (roomId) {
@@ -174,55 +179,39 @@ const ChatWindow = () => {
     };
   }, [roomId]);
 
-  // =========================
-  // 🔹 AUTO SCROLL
-  // =========================
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // =========================
-  // 🔹 SEND MESSAGE
-  // =========================
   const handleSend = async () => {
-    if (input.trim() === "" || !roomId) return;
+    if (!input.trim() || !roomId) return;
 
     try {
-      const res = await fetch(
-        "http://localhost:5000/api/messages/send",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: localStorage.getItem("token"),
-          },
-          body: JSON.stringify({ message: input }),
-        }
-      );
-
-      const savedMessage = await res.json();
-
-      socket.emit("send_message", {
-        roomId,
-        message: savedMessage.message,
-        createdAt: savedMessage.createdAt,
-        UserId: currentUserId,
-        isGroup,
+      await fetch("http://localhost:5000/api/messages/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: localStorage.getItem("token"),
+        },
+        body: JSON.stringify({
+          message: input,
+          roomId,
+          type: "text",
+          isGroup,
+        }),
       });
 
       setInput("");
     } catch (error) {
-      console.log("Error sending message:", error);
+      console.log(error);
     }
   };
 
   return (
     <div className="chat-container">
-      {/* Header */}
       <div className="chat-header">
         <h2>{isGroup ? "Group Chat" : "Personal Chat"}</h2>
 
-        {/* Group Chat */}
         <div style={{ padding: "10px" }}>
           <input
             type="text"
@@ -234,7 +223,6 @@ const ChatWindow = () => {
         </div>
       </div>
 
-      {/* Personal Chat */}
       <div style={{ padding: "10px" }}>
         <input
           type="email"
@@ -245,7 +233,13 @@ const ChatWindow = () => {
         <button onClick={handleJoinRoom}>Start Chat</button>
       </div>
 
-      {/* Messages */}
+      <div style={{ padding: "10px" }}>
+        <input
+          type="file"
+          onChange={(e) => handleFileUpload(e.target.files[0])}
+        />
+      </div>
+
       <div className="chat-messages">
         {messages.map((msg, index) => (
           <div
@@ -254,18 +248,22 @@ const ChatWindow = () => {
               msg.sender === "me" ? "sent" : "received"
             }`}
           >
-            <p>{msg.text}</p>
+            {msg.type === "file" ? (
+              <a href={msg.text} target="_blank" rel="noreferrer">
+                📎 Open File
+              </a>
+            ) : (
+              <p>{msg.text}</p>
+            )}
             <span>{msg.time}</span>
           </div>
         ))}
         <div ref={messagesEndRef}></div>
       </div>
 
-      {/* Input */}
       <div className="chat-input">
         <input
           type="text"
-          placeholder="Type a message..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
