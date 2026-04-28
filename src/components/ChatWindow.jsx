@@ -57,13 +57,25 @@ const ChatWindow = () => {
 
       if (user.email === currentUserEmail) return;
 
-      const newRoomId = generateRoomId(currentUserEmail, user.email);
+      if (!currentUserEmail) {
+        alert("User email not found in token");
+        return;
+      }
+
+      const newRoomId =
+        currentUserEmail < user.email
+          ? `${currentUserEmail}_${user.email}`
+          : `${user.email}_${currentUserEmail}`;
+
+      console.log("Joining room FINAL:", newRoomId);
 
       setRoomId(newRoomId);
       setIsGroup(false);
       setMessages([]);
 
       socket.emit("join_room", newRoomId);
+
+      console.log("Joining room:", newRoomId); // DEBUG
     } catch (err) {
       console.log(err);
     }
@@ -73,7 +85,7 @@ const ChatWindow = () => {
     if (!groupName.trim()) return;
 
     const groupRoomId = `group_${groupName.trim().toLowerCase()}`;
-
+    if (roomId === groupRoomId) return;
     setRoomId(groupRoomId);
     setIsGroup(true);
     setMessages([]);
@@ -90,6 +102,9 @@ const ChatWindow = () => {
 
       const res = await fetch("http://localhost:5000/api/upload", {
         method: "POST",
+        headers: {
+          Authorization: localStorage.getItem("token"), // ✅ ADD THIS
+        },
         body: formData,
       });
 
