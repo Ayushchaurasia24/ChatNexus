@@ -53,6 +53,14 @@ const ChatWindow = () => {
     fetchMessages();
   }, [currentUserId]);
 
+  // ✅ Join personal room
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    socket.emit("join_room", currentUserId);
+
+  }, [currentUserId]);
+
   // ✅ Socket listener (real-time messages)
   useEffect(() => {
     if (!currentUserId) return;
@@ -70,10 +78,10 @@ const ChatWindow = () => {
       setMessages((prev) => [...prev, formattedMessage]);
     };
 
-    socket.on("newMessage", handleNewMessage);
+    socket.on("receive_message", handleNewMessage);
 
     return () => {
-      socket.off("newMessage", handleNewMessage);
+      socket.off("receive_message", handleNewMessage);
     };
   }, [currentUserId]);
 
@@ -87,13 +95,24 @@ const ChatWindow = () => {
     if (input.trim() === "") return;
 
     try {
-      await fetch("http://localhost:5000/api/messages/send", {
+      // ✅ Send via API (DB storage)
+      const res = await fetch("http://localhost:5000/api/messages/send", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: localStorage.getItem("token"),
         },
         body: JSON.stringify({ message: input }),
+      });
+
+      const savedMessage = await res.json();
+
+      // ✅ ALSO send via socket (real-time)
+      socket.emit("send_message", {
+        roomId: currentUserId,
+        message: savedMessage.message,
+        createdAt: savedMessage.createdAt,
+        UserId: currentUserId,
       });
 
       setInput("");
