@@ -8,14 +8,12 @@ const ChatWindow = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [targetEmail, setTargetEmail] = useState("");
+  const [groupName, setGroupName] = useState("");
   const [roomId, setRoomId] = useState(null);
   const [isGroup, setIsGroup] = useState(false);
-  const [groupName, setGroupName] = useState("");
-
-  // ✅ AI STATES (FIXED LOCATION)
   const [suggestions, setSuggestions] = useState([]);
   const [replies, setReplies] = useState([]);
-
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
 
   // ================= AUTH =================
@@ -24,125 +22,91 @@ const ChatWindow = () => {
   let currentUserEmail = null;
 
   try {
-    const decoded = token ? jwtDecode(token) : null;
-    currentUserId = decoded?.id;
-    currentUserEmail = decoded?.email;
-  } catch (err) {
-    console.log("Invalid token", err);
-  }
+    const decoded = jwtDecode(token);
+    currentUserId = decoded.id;
+    currentUserEmail = decoded.email;
+  } catch {}
 
   // ================= SOCKET =================
   useEffect(() => {
-    if (!socket.connected) {
-      socket.auth = { token };
-      socket.connect();
-    }
-
+    socket.auth = { token };
+    socket.connect();
     return () => socket.disconnect();
   }, []);
 
-  // ================= JOIN PERSONAL =================
+  // ================= ROOM JOIN =================
+  const generateRoomId = (a, b) => {
+    return [a, b].sort().join("_");
+  };
+
   const handleJoinRoom = async () => {
     if (!targetEmail.trim()) return;
 
-    try {
-      const res = await fetch(
-        `http://localhost:5000/api/auth/user?email=${targetEmail}`
-      );
+    const res = await fetch(
+      `http://localhost:5000/api/auth/user?email=${targetEmail}`
+    );
 
-      if (!res.ok) return;
+    if (!res.ok) return alert("User not found");
 
-      const user = await res.json();
+    const user = await res.json();
 
-      if (user.email === currentUserEmail) return;
+    const room = generateRoomId(currentUserEmail, user.email);
 
-      const newRoomId =
-        currentUserEmail < user.email
-          ? `${currentUserEmail}_${user.email}`
-          : `${user.email}_${currentUserEmail}`;
+    setRoomId(room);
+    setIsGroup(false);
+    setMessages([]);
 
-      setRoomId(newRoomId);
-      setIsGroup(false);
-      setMessages([]);
-
-      socket.emit("join_room", newRoomId);
-    } catch (err) {
-      console.log(err);
-    }
+    socket.emit("join_room", room);
   };
 
-  // ================= JOIN GROUP =================
   const handleJoinGroup = () => {
     if (!groupName.trim()) return;
 
-    const groupRoomId = `group_${groupName.toLowerCase()}`;
-    setRoomId(groupRoomId);
+    const room = `group_${groupName.toLowerCase()}`;
+
+    setRoomId(room);
     setIsGroup(true);
     setMessages([]);
 
-    socket.emit("join_room", groupRoomId);
+    socket.emit("join_room", room);
   };
 
-  // ================= FILE UPLOAD =================
-  const handleFileUpload = async (file) => {
-    if (!file || !roomId) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const res = await fetch("http://localhost:5000/api/upload", {
-      method: "POST",
-      headers: {
-        Authorization: token,
-      },
-      body: formData,
+  useEffect(() => {
+    socket.on("user_typing", () => {
+      setIsTyping(true);
     });
 
-    const data = await res.json();
-
-    if (!data.fileUrl) return;
-
-    await fetch("http://localhost:5000/api/messages/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: token,
-      },
-      body: JSON.stringify({
-        message: data.fileUrl,
-        roomId,
-        type: "file",
-        isGroup,
-      }),
+    socket.on("user_stop_typing", () => {
+      setIsTyping(false);
     });
-  };
 
-  // ================= FETCH OLD MESSAGES =================
+    return () => {
+      socket.off("user_typing");
+      socket.off("user_stop_typing");
+    };
+  }, []);
+
+  // ================= FETCH OLD =================
   useEffect(() => {
     if (!roomId) return;
 
-    const fetchMessages = async () => {
-      const res = await fetch(
-        `http://localhost:5000/api/messages?roomId=${roomId}`
-      );
-      const data = await res.json();
-
-      setMessages(
-        data.map((msg) => ({
-          text: msg.message,
-          sender: msg.UserId === currentUserId ? "me" : "other",
-          time: new Date(msg.createdAt).toLocaleTimeString(),
-          type: msg.type || "text",
-        }))
-      );
-    };
-
-    fetchMessages();
+    fetch(`http://localhost:5000/api/messages?roomId=${roomId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setMessages(
+          data.map((m) => ({
+            text: m.message,
+            sender: m.UserId === currentUserId ? "me" : "other",
+            time: new Date(m.createdAt).toLocaleTimeString(),
+            type: m.type || "text",
+          }))
+        );
+      });
   }, [roomId]);
 
-  // ================= SOCKET RECEIVE =================
+  // ================= RECEIVE =================
   useEffect(() => {
-    const handleNewMessage = (msg) => {
+    const handler = (msg) => {
       if (msg.roomId !== roomId) return;
 
       setMessages((prev) => [
@@ -156,18 +120,18 @@ const ChatWindow = () => {
       ]);
     };
 
-    socket.on("receive_message", handleNewMessage);
-
-    return () => socket.off("receive_message", handleNewMessage);
+    socket.on("receive_message", handler);
+    return () => socket.off("receive_message", handler);
   }, [roomId]);
 
-  // ================= AUTO SCROLL =================
+  // ================= SCROLL =================
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   // ================= SEND =================
   const handleSend = async () => {
+
     if (!input.trim() || !roomId) return;
 
     await fetch("http://localhost:5000/api/messages/send", {
@@ -186,33 +150,77 @@ const ChatWindow = () => {
 
     setInput("");
   };
-
-  // ================= AI FETCH =================
-  const fetchSuggestions = async (text) => {
-    try {
-      const res = await fetch("http://localhost:5000/api/ai/suggestions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          lastMessage: messages[messages.length - 1]?.text || "",
-        }),
-      });
-
-      const data = await res.json();
-
-      setSuggestions(data.predictions || []);
-      setReplies(data.replies || []);
-    } catch (err) {
-      console.log(err);
+  const handleJoinKey = (e, type) => {
+    if (e.key === "Enter") {
+      if (type === "user") handleJoinRoom();
+      if (type === "group") handleJoinGroup();
     }
   };
 
-  // ================= DEBOUNCE =================
+
+  // ================= ENTER =================
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleSend();
+  };
+
+  // ================= FILE =================
+  const handleFileUpload = async (file) => {
+    if (!file || !roomId) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch("http://localhost:5000/api/upload", {
+      method: "POST",
+      headers: { Authorization: token },
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    await fetch("http://localhost:5000/api/messages/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token,
+      },
+      body: JSON.stringify({
+        message: data.fileUrl,
+        roomId,
+        type: "file",
+        isGroup,
+      }),
+    });
+  };
+
+  // ================= AI =================
   useEffect(() => {
-    const delay = setTimeout(() => {
-      if (input.trim()) fetchSuggestions(input);
-    }, 500);
+    if (!input.trim()) {
+      setSuggestions([]);
+      return;
+    }
+
+    const delay = setTimeout(async () => {
+      try {
+        const res = await fetch("http://localhost:5000/api/ai/suggestions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: input,
+            lastMessage: messages.at(-1)?.text || "",
+          }),
+        });
+
+        const data = await res.json();
+
+        setSuggestions(data.predictions || []);
+        setReplies(data.replies || []);
+      } catch (err) {
+        console.log(err);
+      }
+    }, 500); // debounce
 
     return () => clearTimeout(delay);
   }, [input]);
@@ -220,43 +228,49 @@ const ChatWindow = () => {
   // ================= UI =================
   return (
     <div className="chat-container">
-      <h2>{isGroup ? "Group Chat" : "Personal Chat"}</h2>
 
-      {/* JOIN GROUP */}
-      <input
-        placeholder="Group name"
-        value={groupName}
-        onChange={(e) => setGroupName(e.target.value)}
-      />
-      <button onClick={handleJoinGroup}>Join Group</button>
+      {/* TOP BAR */}
+      <div className="top-bar">
+        <input
+          placeholder="User email"
+          value={targetEmail}
+          onChange={(e) => setTargetEmail(e.target.value)}
+          onKeyDown={(e) => handleJoinKey(e, "user")}
+        />
+        <button onClick={handleJoinRoom}>Chat</button>
 
-      {/* JOIN USER */}
-      <input
-        placeholder="User email"
-        value={targetEmail}
-        onChange={(e) => setTargetEmail(e.target.value)}
-      />
-      <button onClick={handleJoinRoom}>Start Chat</button>
+        <input
+          placeholder="Group name"
+          value={groupName}
+          onChange={(e) => setGroupName(e.target.value)}
+          onKeyDown={(e) => handleJoinKey(e, "group")}
+        />
+        <button onClick={handleJoinGroup}>Group</button>
 
-      {/* FILE */}
-      <input type="file" onChange={(e) => handleFileUpload(e.target.files[0])} />
+        <input type="file" onChange={(e) => handleFileUpload(e.target.files[0])} />
+      </div>
+
+      {/* HEADER */}
+      <div className="chat-header">{roomId || "Start Chat"}</div>
 
       {/* MESSAGES */}
+      {isTyping && <div className="typing">Someone is typing...</div>}
       <div className="chat-messages">
-        {messages.map((msg, i) => (
-          <div key={i} className={msg.sender}>
-            {msg.type === "file" ? (
-              <a href={msg.text}>📎 File</a>
+        {messages.map((m, i) => (
+          <div key={i} className={`message ${m.sender}`}>
+            {m.type === "file" ? (
+              <a href={m.text} target="_blank">📎 File</a>
             ) : (
-              msg.text
+              m.text
             )}
+            <span>{m.time}</span>
           </div>
         ))}
-        <div ref={messagesEndRef}></div>
+        <div ref={messagesEndRef} />
       </div>
 
       {/* REPLIES */}
-      <div>
+      <div className="replies">
         {replies.map((r, i) => (
           <button key={i} onClick={() => setInput(r)}>
             {r}
@@ -264,22 +278,40 @@ const ChatWindow = () => {
         ))}
       </div>
 
-      {/* SUGGESTIONS */}
-      <div>
-        {suggestions.map((s, i) => (
-          <button key={i} onClick={() => setInput(s)}>
-            {s}
-          </button>
-        ))}
+      {/*suggestions*/}
+      {suggestions.length > 0 && input && (
+        <div className="suggestions">
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              onClick={() =>
+                setInput((prev) => (prev ? prev + "" + s : s))
+              }>{s}</button>
+          ))}
+        </div>
+      )}
+      
+      {/* INPUT */}
+      <div className="chat-input">
+        <input
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+
+            socket.emit("typing", roomId);
+
+            setTimeout(() => {
+              socket.emit("stop_typing", roomId);
+            }, 1000);
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Type message..."
+        />
+        <button onClick={handleSend}>Send</button>
       </div>
 
-      {/* INPUT */}
-      <input
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-      />
-      <button onClick={handleSend}>Send</button>
     </div>
+
   );
 };
 
