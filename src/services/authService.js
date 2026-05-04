@@ -1,11 +1,5 @@
-import axios from "axios";
+import api from "./api";
 
-const API = "http://localhost:5000/api/auth";
-
-export const signupUser = (data) => {
-  return axios.post(`${API}/signup`, data);
-};
-
-export const loginUser = (data) => {
-  return axios.post(`${API}/login`, data);
-};
+export const signupUser = (data) => api.post("/api/auth/signup", data);
+export const loginUser = (data) => api.post("/api/auth/login", data);
+export const getUserByEmail = (email) => api.get(`/api/auth/user?email=${encodeURIComponent(email)}`);
