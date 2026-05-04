@@ -213,7 +213,7 @@ export default function Landing() {
           </div>
           ChatNexus
         </div>
-        <p className="footer-text">Built with ❤️ using React + Node.js + Socket.IO</p>
+        <p className="footer-text">Built with ❤️ by <a href="https://www.linkedin.com/in/ayush-chaurasia-791981233" target="_blank" rel="noreferrer" style={{color: "inherit", textDecoration: "underline"}}>Ayush Chaurasia</a> using React + Node.js + Socket.IO</p>
       </footer>
     </div>
   );

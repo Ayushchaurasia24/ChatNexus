@@ -130,7 +130,7 @@ function Signup() {
                   className="auth-input"
                   type="text"
                   name="name"
-                  placeholder="Ayush Sharma"
+                  placeholder="Ayush...."
                   value={formData.name}
                   onChange={handleChange}
                   autoComplete="name"
