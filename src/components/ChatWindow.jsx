@@ -65,7 +65,8 @@ const TypingIndicator = () => (
 
 // ---- IMAGE URL DETECTION ----
 const isImageUrl = (url = "") =>
-  /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(url) || url.includes("amazonaws.com");
+  /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(url) ||
+  (url.includes("amazonaws.com") && !/\.(pdf|doc|docx|xls|xlsx|zip|txt)(\?.*)?$/i.test(url));
 
 // ---- BUBBLE CONTENT ----
 const BubbleContent = ({ type, text }) => {
